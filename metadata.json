@@ -1,0 +1,5 @@
+{
+  "name": "Coordinación de Slots y Demoras",
+  "description": "A multi-tenant internal web application for airline slot management, featuring role-based access, request workflows, and SCR format support.",
+  "requestFramePermissions": []
+}

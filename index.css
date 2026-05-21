@@ -1,0 +1,7 @@
+/* Global styles placeholder */
+html, body, #root {
+  min-height: 100%;
+}
+* {
+  box-sizing: border-box;
+}
