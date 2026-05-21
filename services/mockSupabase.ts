@@ -5,12 +5,48 @@ import {
   RequestType,
   RequestFormat,
   RequestStatus,
+  NotificationSettings,
 } from "../types";
 
 const STORAGE_KEY = "aifa_slot_requests_v1";
+const SETTINGS_STORAGE_KEY = "aifa_notification_settings_v1";
+
+const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  submissionDefaults: {
+    to: "slots@aifa.aero",
+    cc: "operaciones@aifa.aero",
+    bcc: "",
+    subject:
+      "Nueva solicitud de slots - {airline} - {requestType} - {date}",
+    message:
+      "Se ha generado una nueva solicitud de slots por parte de {airline}. Revise el detalle operativo adjunto o incluido en el cuerpo del correo.",
+  },
+  adminResponseDefaults: {
+    to: "notificaciones.slots@aifa.aero",
+    cc: "comandancia@aifa.aero",
+    bcc: "",
+    subject:
+      "Respuesta AIFA - {status} - {airline} - {requestId}",
+    message:
+      "La solicitud {requestId} de {airline} fue actualizada a estatus {status}. Favor de compartir la resolución con las áreas correspondientes.",
+  },
+};
 
 const localStorageAvailable = () =>
   typeof window !== "undefined" && window.localStorage;
+
+const normalizeNotificationSettings = (
+  settings?: Partial<NotificationSettings> | null,
+): NotificationSettings => ({
+  submissionDefaults: {
+    ...DEFAULT_NOTIFICATION_SETTINGS.submissionDefaults,
+    ...(settings?.submissionDefaults ?? {}),
+  },
+  adminResponseDefaults: {
+    ...DEFAULT_NOTIFICATION_SETTINGS.adminResponseDefaults,
+    ...(settings?.adminResponseDefaults ?? {}),
+  },
+});
 
 const loadRequestsFromStorage = (): SlotRequest[] => {
   if (!localStorageAvailable()) return [];
@@ -31,6 +67,37 @@ const saveRequestsToStorage = (requests: SlotRequest[]) => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
   } catch (error) {
     console.warn("No se pudo escribir en localStorage:", error);
+  }
+};
+
+const loadNotificationSettingsFromStorage = (): NotificationSettings => {
+  if (!localStorageAvailable()) return DEFAULT_NOTIFICATION_SETTINGS;
+  try {
+    const stored = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!stored) return DEFAULT_NOTIFICATION_SETTINGS;
+    return normalizeNotificationSettings(
+      JSON.parse(stored) as Partial<NotificationSettings>,
+    );
+  } catch (error) {
+    console.warn("No se pudo leer configuración de notificaciones:", error);
+    return DEFAULT_NOTIFICATION_SETTINGS;
+  }
+};
+
+const saveNotificationSettingsToStorage = (
+  settings: NotificationSettings,
+) => {
+  if (!localStorageAvailable()) return;
+  try {
+    window.localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify(normalizeNotificationSettings(settings)),
+    );
+  } catch (error) {
+    console.warn(
+      "No se pudo guardar configuración de notificaciones:",
+      error,
+    );
   }
 };
 
@@ -575,6 +642,20 @@ export const mockSupabase = {
       MOCK_AIRLINES.find((a) => a.id === airlineId),
     getAirlines: (): Airline[] =>
       MOCK_AIRLINES.filter((a) => a.id !== "air_admin"),
+    getNotificationSettings: async (): Promise<NotificationSettings> => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return loadNotificationSettingsFromStorage();
+    },
+    saveNotificationSettings: async (
+      settings: NotificationSettings,
+    ): Promise<NotificationSettings> => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      const normalized = normalizeNotificationSettings(settings);
+      saveNotificationSettingsToStorage(normalized);
+      return normalized;
+    },
+    getDefaultNotificationSettings: (): NotificationSettings =>
+      normalizeNotificationSettings(DEFAULT_NOTIFICATION_SETTINGS),
     createRequest: async (
       request: Omit<SlotRequest, "id" | "createdAt" | "status"> & {
         status?: RequestStatus;

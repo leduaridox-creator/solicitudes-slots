@@ -40,8 +40,8 @@ export const Toast: React.FC<ToastProps> = ({ toast, onDismiss }) => {
   };
 
   return (
-    <div className={`flex w-full max-w-sm shadow-lg rounded-lg pointer-events-auto ring-1 ring-black ring-opacity-5 overflow-hidden mb-3 animate-fade-in-up ${getStyles()}`}>
-      <div className="p-4 flex items-start">
+    <div className={`w-full min-w-[320px] max-w-[420px] shadow-lg rounded-lg pointer-events-auto ring-1 ring-black ring-opacity-5 overflow-hidden animate-fade-in-up ${getStyles()}`}>
+      <div className="flex w-full items-start p-4">
         <div className="flex-shrink-0">
           {getIcon()}
         </div>
@@ -65,7 +65,7 @@ export const Toast: React.FC<ToastProps> = ({ toast, onDismiss }) => {
 
 export const ToastContainer: React.FC<{ toasts: ToastMessage[]; removeToast: (id: string) => void }> = ({ toasts, removeToast }) => {
   return (
-    <div className="fixed top-0 right-0 p-6 z-50 flex flex-col items-end pointer-events-none sm:p-6 space-y-4">
+    <div className="fixed top-0 right-0 z-50 flex w-full max-w-[420px] flex-col items-stretch gap-4 p-4 pointer-events-none sm:p-6">
       {toasts.map(t => (
         <Toast key={t.id} toast={t} onDismiss={removeToast} />
       ))}

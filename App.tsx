@@ -7,6 +7,7 @@ import { NewRequest } from "./components/NewRequest";
 import { HistoryView } from "./components/History";
 import { Stats } from "./components/Stats";
 import { ScheduledView } from "./components/Scheduled";
+import { SettingsView } from "./components/Settings";
 import { User, Airline, AuthState, ViewType } from "./types";
 import { ToastContainer, ToastMessage, ToastType } from "./components/Toast";
 
@@ -148,6 +149,15 @@ const App = () => {
         return <HistoryView airline={auth.airline} user={auth.user} />;
       case "stats":
         return <Stats airline={auth.airline} user={auth.user} />;
+      case "settings":
+        return (
+          <SettingsView
+            airline={auth.airline}
+            onShowToast={(type, title, message) =>
+              addToast(type, title, message)
+            }
+          />
+        );
       default:
         return (
           <Dashboard

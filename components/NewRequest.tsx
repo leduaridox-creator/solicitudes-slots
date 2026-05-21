@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Airline,
+  NotificationSettings,
   RequestFormat,
   RequestType,
   SlotRequest,
@@ -10,6 +11,8 @@ import {
   AIRLINE_ALLOWED_LETTERS,
 } from "../types";
 import { mockSupabase } from "../services/mockSupabase";
+import { EmailComposer } from "./EmailComposer";
+import { applyEmailTemplate } from "../services/emailNotifications";
 import {
   ArrowLeft,
   ArrowRight,
@@ -31,8 +34,6 @@ import {
   Send,
   Layers,
   Mail,
-  Paperclip,
-  Check,
 } from "lucide-react";
 
 interface NewRequestProps {
@@ -78,6 +79,7 @@ export const NewRequest: React.FC<NewRequestProps> = ({
   const [viewingRequest, setViewingRequest] = useState<SlotRequest | null>(
     null,
   );
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
 
   const [scrContent, setScrContent] = useState("");
   const [airlineLetter, setAirlineLetter] = useState("");
@@ -118,13 +120,92 @@ export const NewRequest: React.FC<NewRequestProps> = ({
   }, [onToggleSidebar]);
 
   const [emailTo, setEmailTo] = useState("");
-  const [emailCc, setEmailCc] = useState("");
+  const [emailAdditionalCc, setEmailAdditionalCc] = useState("");
   const [emailBcc, setEmailBcc] = useState("");
   const [emailSubject, setEmailSubject] = useState(
     `Solicitud de Slots - ${airline.name} - ${new Date().toLocaleDateString()}`,
   );
-  const [includeInBody, setIncludeInBody] = useState(true);
   const [attachAsFile, setAttachAsFile] = useState(true);
+  const [emailBodyHtml, setEmailBodyHtml] = useState("");
+  const [notificationSettings, setNotificationSettings] =
+    useState<NotificationSettings | null>(null);
+  const [emailFieldsCustomized, setEmailFieldsCustomized] = useState(false);
+
+  const submissionDefaultCc = notificationSettings?.submissionDefaults.cc || "";
+
+  const textToHtml = (value: string) =>
+    value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => `<p>${line}</p>`)
+      .join("");
+
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const getSubmissionEmailContext = useCallback(
+    () => ({
+      airline: airline.name,
+      requestType: reqType ?? "Solicitud",
+      requestFormat: reqFormat ?? "",
+      date: new Date().toLocaleDateString("es-MX"),
+      batchCount: currentBatch.length || 1,
+    }),
+    [airline.name, currentBatch.length, reqFormat, reqType],
+  );
+
+  const applySubmissionDefaults = useCallback(
+    (settings: NotificationSettings, force = false) => {
+      if (emailFieldsCustomized && !force) return;
+
+      const context = getSubmissionEmailContext();
+      setEmailTo(settings.submissionDefaults.to);
+      setEmailAdditionalCc("");
+      setEmailBcc(settings.submissionDefaults.bcc);
+      setEmailSubject(
+        applyEmailTemplate(settings.submissionDefaults.subject, context),
+      );
+      setEmailBodyHtml(textToHtml(settings.submissionDefaults.message));
+    },
+    [emailFieldsCustomized, getSubmissionEmailContext],
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadNotificationSettings = async () => {
+      try {
+        const settings = await mockSupabase.db.getNotificationSettings();
+        if (!isMounted) return;
+        setNotificationSettings(settings);
+      } catch (error) {
+        console.error("Error loading notification settings:", error);
+      }
+    };
+
+    loadNotificationSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (step === 5 && notificationSettings && !emailFieldsCustomized) {
+      applySubmissionDefaults(notificationSettings, true);
+    }
+  }, [
+    applySubmissionDefaults,
+    emailFieldsCustomized,
+    notificationSettings,
+    step,
+  ]);
 
   const handleFinalSubmit = async () => {
     setIsSubmitting(true);
@@ -1655,11 +1736,6 @@ export const NewRequest: React.FC<NewRequestProps> = ({
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-2 mt-2">
-                    {req.airlineLetter && (
-                      <span className="text-[10px] uppercase tracking-widest bg-slate-100 text-slate-700 px-2 py-1 rounded-full border border-slate-200">
-                        A: {req.airlineLetter}
-                      </span>
-                    )}
                     {req.adminLetter && (
                       <span className="text-[10px] uppercase tracking-widest bg-blue-50 text-blue-700 px-2 py-1 rounded-full border border-blue-200">
                         R: {req.adminLetter}
@@ -1715,7 +1791,7 @@ export const NewRequest: React.FC<NewRequestProps> = ({
             Cancelar todo
           </button>
           <button
-            onClick={() => setStep(4)}
+            onClick={() => setStep(5)}
             disabled={currentBatch.length === 0}
             className="flex items-center px-8 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold transition-all shadow-lg shadow-blue-100 disabled:opacity-50 text-xs tracking-widest"
           >
@@ -1820,11 +1896,73 @@ export const NewRequest: React.FC<NewRequestProps> = ({
     </div>
   );
 
+  const handleCancelEditingRequest = () => {
+    setEditingRequestId(null);
+    setFormError(null);
+    setStep(3);
+  };
+
+  const handleSaveEditedRequest = () => {
+    if (!editingRequestId) return;
+    if (!validateCurrentRequest()) {
+      return;
+    }
+
+    const existingRequest = currentBatch.find((req) => req.id === editingRequestId);
+    const updatedRequest = {
+      ...getPayload((existingRequest?.status as RequestStatus) || RequestStatus.DRAFT),
+      id: editingRequestId,
+      createdAt: existingRequest?.createdAt || new Date().toISOString(),
+    };
+
+    setCurrentBatch((prev) =>
+      prev.map((req) => (req.id === editingRequestId ? updatedRequest : req)),
+    );
+    setEditingRequestId(null);
+    setFormError(null);
+    setStep(3);
+  };
+
+  const handleEditViewingRequest = () => {
+    if (!viewingRequest) return;
+
+    setEditingRequestId(viewingRequest.id);
+    setReqType(viewingRequest.requestType);
+    setReqFormat(viewingRequest.requestFormat);
+    setIsUtc(viewingRequest.isUtc ?? true);
+    setTimeTypeSelected(true);
+    setFormError(null);
+
+    if (viewingRequest.requestFormat === RequestFormat.SCR) {
+      setAirlineLetter(viewingRequest.airlineLetter ?? "");
+      setScrContent(viewingRequest.scrContent ?? "");
+      setRows([]);
+    } else {
+      setHeaderData(
+        viewingRequest.manualData?.header ?? {
+          representative: "",
+          officePhone: "",
+          cellPhone: "",
+          date: new Date().toLocaleDateString("es-MX"),
+          page: "1",
+          revision: "0",
+          controlNumber: "",
+        },
+      );
+      setRows(viewingRequest.manualData?.rows ?? []);
+      setScrContent("");
+      setAirlineLetter("");
+    }
+
+    setViewingRequest(null);
+    setStep(2);
+  };
+
   const renderViewModal = () => {
     if (!viewingRequest) return null;
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-        <div className="bg-white rounded shadow-2xl w-full max-w-[1300px] max-h-[95vh] overflow-hidden flex flex-col select-text">
+      <div className="fixed inset-0 z-[60] flex bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+        <div className="bg-white shadow-2xl w-screen h-screen overflow-hidden flex flex-col select-text">
           <div className="px-6 py-2 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0 select-none">
             <span className="text-sm font-bold text-slate-800 uppercase">
               Vista previa de solicitud
@@ -1849,7 +1987,13 @@ export const NewRequest: React.FC<NewRequestProps> = ({
               </div>
             )}
           </div>
-          <div className="px-6 py-4 border-t border-slate-200 bg-white flex justify-end shrink-0 select-none">
+          <div className="px-6 py-4 border-t border-slate-200 bg-white flex justify-end gap-3 shrink-0 select-none">
+            <button
+              onClick={handleEditViewingRequest}
+              className="px-8 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold transition-all shadow-md text-sm tracking-wider"
+            >
+              Editar solicitud
+            </button>
             <button
               onClick={() => setViewingRequest(null)}
               className="px-8 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 font-bold transition-all shadow-md text-sm tracking-wider"
@@ -1868,6 +2012,7 @@ export const NewRequest: React.FC<NewRequestProps> = ({
     }
     const currentRequest = getPayload(RequestStatus.DRAFT);
     setCurrentBatch((prev) => [...prev, currentRequest]);
+    setEditingRequestId(null);
     setStep(goToStep);
     if (goToStep === 1) {
       setReqType(null);
@@ -1877,6 +2022,10 @@ export const NewRequest: React.FC<NewRequestProps> = ({
       setScrContent("");
       setAirlineLetter("");
       setFormError(null);
+    }
+
+    if (goToStep === 3) {
+      setEmailFieldsCustomized(false);
     }
   };
 
@@ -1890,17 +2039,6 @@ export const NewRequest: React.FC<NewRequestProps> = ({
     }
 
     if (reqFormat === RequestFormat.SCR) {
-      const currentLetter = airlineLetter.trim().toUpperCase();
-      if (!currentLetter) {
-        setFormError("Debe ingresar el código correspondiente a su solicitud.");
-        return false;
-      }
-      if (!isValidAirlineLetter(currentLetter)) {
-        setFormError(
-          "La letra de la aerolínea no es válida para este tipo de solicitud.",
-        );
-        return false;
-      }
       if (!scrContent.trim()) {
         setFormError("Debe ingresar el contenido SCR antes de continuar.");
         return false;
@@ -1927,26 +2065,25 @@ export const NewRequest: React.FC<NewRequestProps> = ({
         return false;
       }
 
-      const requiredFields: (keyof ManualRow)[] = [
-        "airlineCode",
-        "flightArr",
-        "flightDep",
-        "equipment",
-        "timeArr",
-        "timeDep",
-        "origin",
-        "destination",
-        "frequency",
-        "validityFrom",
-        "validityTo",
-        "slotNumber",
-      ];
-      const incompleteRow = activeRows.find((row) =>
-        requiredFields.some((field) => !row[field]?.trim()),
-      );
+      const incompleteRow = activeRows.find((row) => {
+        if (!row.airlineCode?.trim()) {
+          return true;
+        }
+
+        const hasArrivalData = [row.flightArr, row.timeArr, row.typeArr].some(
+          (value) => value?.trim(),
+        );
+        const hasDepartureData = [
+          row.flightDep,
+          row.timeDep,
+          row.typeDep,
+        ].some((value) => value?.trim());
+
+        return !hasArrivalData && !hasDepartureData;
+      });
       if (incompleteRow) {
         setFormError(
-          "Cada movimiento debe completar los campos obligatorios de vuelo, horario, ruta y slot.",
+          "Cada movimiento debe incluir la línea aérea y al menos algún dato de llegada o salida.",
         );
         return false;
       }
@@ -2019,7 +2156,6 @@ export const NewRequest: React.FC<NewRequestProps> = ({
         requestType: reqType!,
         requestFormat: RequestFormat.SCR,
         isUtc: isUtc,
-        airlineLetter: airlineLetter.trim().toUpperCase(),
         scrContent: scrContent,
         status,
         createdAt: new Date().toISOString(),
@@ -2070,6 +2206,16 @@ export const NewRequest: React.FC<NewRequestProps> = ({
       })
       .join("\n\n");
 
+  const insertTechnicalSummaryIntoEmail = () => {
+    const technicalHtml = `<section style="margin:24px 0;padding:20px;border:1px solid #dbeafe;border-radius:20px;background:#eff6ff;"><h2 style="margin:0 0 12px;font-size:20px;color:#0f172a;">Resumen técnico del paquete</h2><pre style="margin:0;white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;font-size:12px;line-height:1.6;color:#0f172a;">${escapeHtml(getFullBatchRawText())}</pre></section>`;
+    setEmailFieldsCustomized(true);
+    setEmailBodyHtml((prev) => `${prev}${technicalHtml}`);
+  };
+
+  const mergedSubmissionCc = [submissionDefaultCc, emailAdditionalCc]
+    .filter(Boolean)
+    .join(", ");
+
   return (
     <div className="min-h-full flex flex-col">
       <div className="flex-1 overflow-x-hidden">
@@ -2085,29 +2231,10 @@ export const NewRequest: React.FC<NewRequestProps> = ({
                   </h3>
                 </div>
                 <div className="p-5 border-b border-slate-200 bg-slate-50">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">
-                        Letra de la aerolínea
-                      </label>
-                      <input
-                        type="text"
-                        maxLength={1}
-                        value={airlineLetter}
-                        onChange={(e) =>
-                          setAirlineLetter(
-                            e.target.value.toUpperCase().slice(0, 1),
-                          )
-                        }
-                        placeholder="Ej. N"
-                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                      />
-                      <p className="text-xs text-slate-500">
-                        Ingrese manualmente el código de letra asociado a la
-                        solicitud. No se autogenera.
-                      </p>
-                    </div>
-                  </div>
+                  <p className="text-sm text-slate-500">
+                    Pegue el mensaje SCR estandar IATA para continuar con la
+                    solicitud.
+                  </p>
                 </div>
                 {formError && (
                   <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 text-sm">
@@ -2140,121 +2267,46 @@ export const NewRequest: React.FC<NewRequestProps> = ({
         {step === 4 && renderDetailedPreviewStep()}
         {step === 5 && (
           <div className="p-8 max-w-6xl mx-auto space-y-8 animate-fade-in flex flex-col h-full">
-            <div className="flex flex-col space-y-2 select-none flex-shrink-0">
-              <h3 className="text-3xl font-bold text-slate-900 tracking-tight uppercase">
-                Enviar paquete por correo
-              </h3>
-              <p className="text-slate-500 font-medium">
-                Configure los destinatarios y el formato del mensaje.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 flex-1 overflow-hidden">
-              <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm space-y-6 overflow-y-auto">
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
-                      Para (To)
-                    </label>
-                    <input
-                      type="text"
-                      value={emailTo}
-                      onChange={(e) => setEmailTo(e.target.value)}
-                      placeholder="destinatario1@dominio.com..."
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
-                        CC
-                      </label>
-                      <input
-                        type="text"
-                        value={emailCc}
-                        onChange={(e) => setEmailCc(e.target.value)}
-                        placeholder="cc1@mail.com..."
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
-                        BCC
-                      </label>
-                      <input
-                        type="text"
-                        value={emailBcc}
-                        onChange={(e) => setEmailBcc(e.target.value)}
-                        placeholder="bcc1@mail.com..."
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
-                      Asunto (Subject)
-                    </label>
-                    <input
-                      type="text"
-                      value={emailSubject}
-                      onChange={(e) => setEmailSubject(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold"
-                    />
-                  </div>
-                </div>
-                <div className="pt-6 border-t border-slate-100 space-y-4">
-                  <label className="flex items-center space-x-3 cursor-pointer group">
-                    <div
-                      className={`w-6 h-6 rounded flex items-center justify-center border-2 transition-all ${includeInBody ? "bg-blue-600 border-blue-600" : "bg-white border-slate-300"}`}
-                      onClick={() => setIncludeInBody(!includeInBody)}
-                    >
-                      <Check
-                        className={`w-4 h-4 text-white ${includeInBody ? "opacity-100" : "opacity-0"}`}
-                      />
-                    </div>
-                    <span className="text-sm font-bold text-slate-700 tracking-tight">
-                      Incluir en cuerpo del correo
-                    </span>
-                  </label>
-                  <label className="flex items-center space-x-3 cursor-pointer group">
-                    <div
-                      className={`w-6 h-6 rounded flex items-center justify-center border-2 transition-all ${attachAsFile ? "bg-blue-600 border-blue-600" : "bg-white border-slate-300"}`}
-                      onClick={() => setAttachAsFile(!attachAsFile)}
-                    >
-                      <Check
-                        className={`w-4 h-4 text-white ${attachAsFile ? "opacity-100" : "opacity-0"}`}
-                      />
-                    </div>
-                    <span className="text-sm font-bold text-slate-700 tracking-tight">
-                      Adjuntar como archivo (.txt)
-                    </span>
-                  </label>
-                </div>
-              </div>
-              <div className="bg-slate-100 rounded-2xl border border-slate-200 p-6 flex flex-col shadow-inner">
-                <div className="flex items-center space-x-2 text-slate-400 mb-4 select-none">
-                  <Mail className="w-4 h-4" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">
-                    Vista previa del correo
-                  </span>
-                </div>
-                <div className="bg-white rounded-xl flex-1 shadow-sm p-6 overflow-auto font-mono text-[15px] leading-relaxed select-text min-h-[200px]">
-                  {includeInBody ? (
-                    getFullBatchRawText()
-                  ) : (
-                    <p className="text-slate-400 italic font-sans text-center mt-20 uppercase tracking-widest text-[10px]">
-                      El cuerpo del mensaje no incluirá el texto de las
-                      solicitudes.
-                    </p>
-                  )}
-                  {attachAsFile && (
-                    <div className="mt-8 pt-4 border-t border-slate-100 flex items-center text-blue-600 select-none font-bold tracking-tight text-[10px]">
-                      <Paperclip className="w-4 h-4 mr-2" /> Adjunto:
-                      solicitudes_paquete.txt
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            <EmailComposer
+              title="Enviar paquete por correo"
+              subtitle="El operador puede dar formato libre al mensaje, agregar imágenes y dejar listo el paquete para su distribución."
+              fromLabel={`${airline.name} <${airline.iataCode.toLowerCase()}@ops.aero>`}
+              to={emailTo}
+              onToChange={(value) => {
+                setEmailFieldsCustomized(true);
+                setEmailTo(value);
+              }}
+              defaultCc={submissionDefaultCc}
+              extraCcLabel="Agregue correos adicionales para copia"
+              extraCc={emailAdditionalCc}
+              onExtraCcChange={(value) => {
+                setEmailFieldsCustomized(true);
+                setEmailAdditionalCc(value);
+              }}
+              bcc={emailBcc}
+              onBccChange={(value) => {
+                setEmailFieldsCustomized(true);
+                setEmailBcc(value);
+              }}
+              subject={emailSubject}
+              onSubjectChange={(value) => {
+                setEmailFieldsCustomized(true);
+                setEmailSubject(value);
+              }}
+              bodyHtml={emailBodyHtml}
+              onBodyHtmlChange={(value) => {
+                setEmailFieldsCustomized(true);
+                setEmailBodyHtml(value);
+              }}
+              attachmentLabel={attachAsFile ? "solicitudes_paquete.txt" : undefined}
+              attachmentNote={attachAsFile ? "El paquete técnico se conserva como referencia operativa en esta vista." : undefined}
+              helperActions={[
+                {
+                  label: "Insertar detalle técnico",
+                  onClick: insertTechnicalSummaryIntoEmail,
+                },
+              ]}
+            />
           </div>
         )}
         {step === 6 && (
@@ -2280,13 +2332,13 @@ export const NewRequest: React.FC<NewRequestProps> = ({
                     {emailTo}
                   </span>
                 </div>
-                {emailCc && (
+                {mergedSubmissionCc && (
                   <div className="flex justify-between border-b border-slate-50 pb-2">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                       CC:
                     </span>
                     <span className="text-sm font-bold text-slate-800">
-                      {emailCc}
+                      {mergedSubmissionCc}
                     </span>
                   </div>
                 )}
@@ -2305,8 +2357,17 @@ export const NewRequest: React.FC<NewRequestProps> = ({
                   <span className="font-bold text-blue-600">
                     {currentBatch.length} solicitudes
                   </span>{" "}
-                  acumuladas en el paquete sin ninguna alteración técnica.
+                  acumuladas en el paquete con el diseño personalizado del correo.
                 </p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 overflow-hidden">
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Cuerpo del correo
+                </div>
+                <div
+                  className="p-6 bg-white text-slate-800 leading-7 [&_img]:max-w-full [&_img]:rounded-2xl [&_img]:shadow-md [&_h2]:text-2xl [&_h2]:font-black [&_h2]:text-slate-900 [&_p]:mb-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6"
+                  dangerouslySetInnerHTML={{ __html: emailBodyHtml || "<p style='color:#94a3b8;'>Sin contenido personalizado.</p>" }}
+                />
               </div>
             </div>
             <div className="flex flex-col space-y-3">
@@ -2340,33 +2401,52 @@ export const NewRequest: React.FC<NewRequestProps> = ({
 
       {step === 2 && (
         <div className="sticky bottom-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.1)] z-50 flex justify-between items-center select-none w-full">
-          <button
-            onClick={() => setStep(1)}
-            className="flex items-center px-5 py-2 text-slate-600 hover:text-slate-900 font-bold text-xs tracking-widest transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" /> Atrás
-          </button>
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={() => addToBatchInternal(1)}
-              className="flex items-center px-6 py-2 bg-white border border-blue-600 text-blue-600 rounded-xl hover:bg-blue-50 font-bold shadow-sm text-xs tracking-widest transition-all active:scale-95"
-            >
-              <Plus className="w-4 h-4 mr-2" /> Añadir otro movimiento
-            </button>
-            <button
-              onClick={() => addToBatchInternal(3)}
-              className="flex items-center px-8 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold transition-all shadow-lg shadow-blue-100 text-xs tracking-widest transition-all active:scale-95"
-            >
-              Añadir al paquete y revisar{" "}
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </button>
-          </div>
+          {editingRequestId ? (
+            <>
+              <button
+                onClick={handleCancelEditingRequest}
+                className="flex items-center px-5 py-2 text-slate-600 hover:text-slate-900 font-bold text-xs tracking-widest transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" /> Atrás
+              </button>
+              <button
+                onClick={handleSaveEditedRequest}
+                className="flex items-center px-8 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold transition-all shadow-lg shadow-blue-100 text-xs tracking-widest transition-all active:scale-95"
+              >
+                Guardar cambios
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setStep(1)}
+                className="flex items-center px-5 py-2 text-slate-600 hover:text-slate-900 font-bold text-xs tracking-widest transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" /> Atrás
+              </button>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => addToBatchInternal(1)}
+                  className="flex items-center px-6 py-2 bg-white border border-blue-600 text-blue-600 rounded-xl hover:bg-blue-50 font-bold shadow-sm text-xs tracking-widest transition-all active:scale-95"
+                >
+                  <Plus className="w-4 h-4 mr-2" /> Añadir otro movimiento
+                </button>
+                <button
+                  onClick={() => addToBatchInternal(3)}
+                  className="flex items-center px-8 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold transition-all shadow-lg shadow-blue-100 text-xs tracking-widest transition-all active:scale-95"
+                >
+                  Añadir al paquete y revisar{" "}
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
       {step === 5 && (
         <div className="sticky bottom-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.1)] z-50 flex justify-between items-center select-none w-full">
           <button
-            onClick={() => setStep(4)}
+            onClick={() => setStep(3)}
             className="flex items-center px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold text-xs tracking-widest"
           >
             Volver

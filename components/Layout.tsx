@@ -10,6 +10,7 @@ import {
   CalendarDays as CalendarIcon,
   Inbox as InboxIcon,
   BarChart2 as StatsIcon,
+  Settings as SettingsIcon,
 } from "lucide-react";
 
 interface LayoutProps {
@@ -180,6 +181,25 @@ export const Layout: React.FC<LayoutProps> = ({
               )}
             </button>
           )}
+          {isAdmin && (
+            <button
+              onClick={() => onNavigate("settings")}
+              className={`flex items-center w-full py-3 rounded-lg transition-colors ${isCollapsed ? "justify-center px-0" : "px-4"} ${
+                currentView === "settings"
+                  ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              }`}
+            >
+              <SettingsIcon
+                className={`h-5 w-5 ${isCollapsed ? "" : "mr-3"}`}
+              />
+              {!isCollapsed && (
+                <span className="font-medium animate-fade-in">
+                  Configuración
+                </span>
+              )}
+            </button>
+          )}
         </nav>
 
         <div className="p-4 border-t border-slate-800">
@@ -224,6 +244,8 @@ export const Layout: React.FC<LayoutProps> = ({
                     ? "Vuelos Programados"
                     : currentView === "stats"
                       ? "Estadísticas de Solicitudes"
+                      : currentView === "settings"
+                        ? "Configuración de Notificaciones"
                       : "Nueva Solicitud"}
           </h2>
           <div className="flex items-center space-x-2">

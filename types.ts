@@ -64,6 +64,19 @@ export interface User {
   role: "admin" | "user";
 }
 
+export interface NotificationEmailProfile {
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  message: string;
+}
+
+export interface NotificationSettings {
+  submissionDefaults: NotificationEmailProfile;
+  adminResponseDefaults: NotificationEmailProfile;
+}
+
 // Detailed structure for the Manual Form Row (Excel replication)
 export interface ManualRow {
   id: string;
@@ -162,4 +175,5 @@ export type ViewType =
   | "new-request"
   | "history"
   | "scheduled"
-  | "stats";
+  | "stats"
+  | "settings";
