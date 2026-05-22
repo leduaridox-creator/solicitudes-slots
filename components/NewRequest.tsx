@@ -129,6 +129,7 @@ export const NewRequest: React.FC<NewRequestProps> = ({
   const [emailBodyHtml, setEmailBodyHtml] = useState("");
   const [notificationSettings, setNotificationSettings] =
     useState<NotificationSettings | null>(null);
+  const [knownRecipients, setKnownRecipients] = useState<string[]>([]);
   const [emailFieldsCustomized, setEmailFieldsCustomized] = useState(false);
 
   const submissionDefaultCc = notificationSettings?.submissionDefaults.cc || "";
@@ -181,9 +182,13 @@ export const NewRequest: React.FC<NewRequestProps> = ({
 
     const loadNotificationSettings = async () => {
       try {
-        const settings = await mockSupabase.db.getNotificationSettings();
+        const [settings, recipients] = await Promise.all([
+          mockSupabase.db.getNotificationSettings(),
+          mockSupabase.db.getKnownEmailAddresses({ airlineId: airline.id }),
+        ]);
         if (!isMounted) return;
         setNotificationSettings(settings);
+        setKnownRecipients(recipients);
       } catch (error) {
         console.error("Error loading notification settings:", error);
       }
@@ -210,7 +215,18 @@ export const NewRequest: React.FC<NewRequestProps> = ({
   const handleFinalSubmit = async () => {
     setIsSubmitting(true);
     try {
-      await mockSupabase.db.submitBatch(currentBatch);
+      const batchWithEmailMetadata = currentBatch.map((request) => ({
+        ...request,
+        submissionEmail: {
+          to: emailTo,
+          cc: mergedSubmissionCc,
+          bcc: emailBcc,
+          subject: emailSubject,
+          airlineAdditionalCc: emailAdditionalCc,
+        },
+      }));
+
+      await mockSupabase.db.submitBatch(batchWithEmailMetadata);
       setStep(7);
     } catch (error) {
       console.error("Error submitting batch:", error);
@@ -2283,11 +2299,6 @@ export const NewRequest: React.FC<NewRequestProps> = ({
                 setEmailFieldsCustomized(true);
                 setEmailAdditionalCc(value);
               }}
-              bcc={emailBcc}
-              onBccChange={(value) => {
-                setEmailFieldsCustomized(true);
-                setEmailBcc(value);
-              }}
               subject={emailSubject}
               onSubjectChange={(value) => {
                 setEmailFieldsCustomized(true);
@@ -2300,6 +2311,7 @@ export const NewRequest: React.FC<NewRequestProps> = ({
               }}
               attachmentLabel={attachAsFile ? "solicitudes_paquete.txt" : undefined}
               attachmentNote={attachAsFile ? "El paquete técnico se conserva como referencia operativa en esta vista." : undefined}
+              knownRecipients={knownRecipients}
               helperActions={[
                 {
                   label: "Insertar detalle técnico",

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bold,
   ImagePlus,
@@ -22,8 +22,6 @@ interface EmailComposerProps {
   extraCcLabel: string;
   extraCc: string;
   onExtraCcChange: (value: string) => void;
-  bcc: string;
-  onBccChange: (value: string) => void;
   subject: string;
   onSubjectChange: (value: string) => void;
   bodyHtml: string;
@@ -34,6 +32,7 @@ interface EmailComposerProps {
     label: string;
     onClick: () => void;
   }>;
+  knownRecipients?: string[];
 }
 
 const splitRecipients = (value: string): string[] =>
@@ -41,6 +40,96 @@ const splitRecipients = (value: string): string[] =>
     .split(/[;,]/)
     .map((entry) => entry.trim())
     .filter(Boolean);
+
+const getRecipientDraft = (value: string) => {
+  const match = value.match(/^(.*[;,]\s*)?([^;,]*)$/);
+  return {
+    prefix: match?.[1] || "",
+    token: (match?.[2] || "").trim(),
+  };
+};
+
+const replaceRecipientDraft = (value: string, recipient: string) => {
+  const { prefix } = getRecipientDraft(value);
+  return `${prefix}${recipient}, `;
+};
+
+const RecipientAutocompleteInput: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  knownRecipients: string[];
+}> = ({ value, onChange, placeholder, knownRecipients }) => {
+  const [isFocused, setIsFocused] = useState(false);
+
+  const suggestions = useMemo(() => {
+    const selectedRecipients = new Set(
+      splitRecipients(value).map((recipient) => recipient.toLowerCase()),
+    );
+    const { token } = getRecipientDraft(value);
+    const normalizedToken = token.toLowerCase();
+    const availableRecipients = knownRecipients.filter(
+      (recipient) => !selectedRecipients.has(recipient.toLowerCase()),
+    );
+
+    if (!normalizedToken) {
+      return availableRecipients.slice(0, 6);
+    }
+
+    const prioritizedMatches = availableRecipients
+      .filter((recipient) => recipient.toLowerCase().includes(normalizedToken))
+      .sort((left, right) => {
+        const leftValue = left.toLowerCase();
+        const rightValue = right.toLowerCase();
+        const leftStartsWith = leftValue.startsWith(normalizedToken);
+        const rightStartsWith = rightValue.startsWith(normalizedToken);
+
+        if (leftStartsWith !== rightStartsWith) {
+          return leftStartsWith ? -1 : 1;
+        }
+
+        return leftValue.localeCompare(rightValue);
+      });
+
+    if (prioritizedMatches.length > 0) {
+      return prioritizedMatches.slice(0, 6);
+    }
+
+    return availableRecipients.slice(0, 6);
+  }, [knownRecipients, value]);
+
+  return (
+    <div className="relative w-full">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setTimeout(() => setIsFocused(false), 120)}
+        placeholder={placeholder}
+        className="min-h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:ring-2 focus:ring-blue-500 w-full"
+      />
+      {isFocused && suggestions.length > 0 && (
+        <div className="absolute left-0 right-0 top-[calc(100%+8px)] bg-white border border-slate-200 rounded-2xl shadow-lg z-20 overflow-hidden">
+          {suggestions.map((recipient) => (
+            <button
+              key={recipient}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(replaceRecipientDraft(value, recipient));
+                setIsFocused(false);
+              }}
+              className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              {recipient}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const EmailComposer: React.FC<EmailComposerProps> = ({
   title,
@@ -52,8 +141,6 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
   extraCcLabel,
   extraCc,
   onExtraCcChange,
-  bcc,
-  onBccChange,
   subject,
   onSubjectChange,
   bodyHtml,
@@ -61,6 +148,7 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
   attachmentLabel,
   attachmentNote,
   helperActions = [],
+  knownRecipients = [],
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -120,12 +208,11 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
             <span className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">
               Para
             </span>
-            <input
-              type="text"
+            <RecipientAutocompleteInput
               value={to}
-              onChange={(e) => onToChange(e.target.value)}
+              onChange={onToChange}
               placeholder="destinatario@dominio.com"
-              className="min-h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              knownRecipients={knownRecipients}
             />
           </div>
 
@@ -155,27 +242,13 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
                   )}
                 </div>
               </div>
-              <input
-                type="text"
+              <RecipientAutocompleteInput
                 value={extraCc}
-                onChange={(e) => onExtraCcChange(e.target.value)}
+                onChange={onExtraCcChange}
                 placeholder={extraCcLabel}
-                className="min-h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:ring-2 focus:ring-blue-500 w-full"
+                knownRecipients={knownRecipients}
               />
             </div>
-          </div>
-
-          <div className="grid grid-cols-[96px_1fr] gap-4 items-center">
-            <span className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">
-              Cco
-            </span>
-            <input
-              type="text"
-              value={bcc}
-              onChange={(e) => onBccChange(e.target.value)}
-              placeholder="copia.oculta@dominio.com"
-              className="min-h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-            />
           </div>
 
           <div className="grid grid-cols-[96px_1fr] gap-4 items-center">

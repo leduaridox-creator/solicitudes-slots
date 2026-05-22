@@ -151,6 +151,13 @@ export interface SlotRequest {
   createdAt: string;
   airlineLetter?: string;
   adminLetter?: string;
+  submissionEmail?: {
+    to?: string;
+    cc?: string;
+    bcc?: string;
+    subject?: string;
+    airlineAdditionalCc?: string;
+  };
 }
 
 export interface ScheduledFlight {

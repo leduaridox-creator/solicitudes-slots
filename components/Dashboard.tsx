@@ -76,6 +76,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [responseBcc, setResponseBcc] = useState("");
   const [responseSubject, setResponseSubject] = useState("");
   const [responseBodyHtml, setResponseBodyHtml] = useState("");
+  const [knownRecipients, setKnownRecipients] = useState<string[]>([]);
   const [sendingResponse, setSendingResponse] = useState(false);
 
   // States for the Manual Edit Form inside Dashboard
@@ -84,6 +85,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const isAdmin = user.role === "admin";
   const gridRef = useRef<HTMLDivElement>(null);
+
+  const isTodayRequest = (createdAt?: string) => {
+    if (!createdAt) return false;
+    const requestDate = new Date(createdAt);
+    const today = new Date();
+    return requestDate.toDateString() === today.toDateString();
+  };
 
   const textToHtml = (value: string) =>
     value
@@ -113,6 +121,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
   useEffect(() => {
     fetchRequests();
   }, [airline.id, isAdmin]);
+
+  useEffect(() => {
+    const loadKnownRecipients = async () => {
+      try {
+        const recipients = await mockSupabase.db.getKnownEmailAddresses({
+          includeAllAirlines: true,
+        });
+        setKnownRecipients(recipients);
+      } catch (error) {
+        console.error("Error loading known recipients:", error);
+      }
+    };
+
+    loadKnownRecipients();
+  }, []);
 
   useEffect(() => {
     if (viewingRequest) {
@@ -154,7 +177,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setResponseStatus(newStatus);
       setResponseTo(settings.adminResponseDefaults.to);
       setResponseDefaultCc(settings.adminResponseDefaults.cc);
-      setResponseAdditionalCc("");
+      setResponseAdditionalCc(request.submissionEmail?.airlineAdditionalCc || "");
       setResponseBcc(settings.adminResponseDefaults.bcc);
       setResponseSubject(
         applyEmailTemplate(settings.adminResponseDefaults.subject, context),
@@ -1089,38 +1112,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               {renderRequestPreviewCard()}
             </div>
           </div>
-          <div className="px-6 py-4 border-t border-slate-200 bg-white flex justify-between items-center select-none">
-            <div className="flex gap-2">
-              {isAdmin && viewingRequest.status === RequestStatus.PENDING && (
-                <>
-                  <button
-                    onClick={() => {
-                      openResponseComposer(
-                        viewingRequest,
-                        RequestStatus.APPROVED,
-                      );
-                    }}
-                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-xs uppercase tracking-widest shadow-md"
-                  >
-                    Aprobar
-                  </button>
-                  <button className="px-4 py-2 bg-amber-500 text-white rounded-lg font-bold text-xs uppercase tracking-widest shadow-md flex items-center">
-                    <Lightbulb className="w-3 h-3 mr-1.5" /> Propuesta
-                  </button>
-                  <button
-                    onClick={() => {
-                      openResponseComposer(
-                        viewingRequest,
-                        RequestStatus.REJECTED,
-                      );
-                    }}
-                    className="px-4 py-2 bg-rose-600 text-white rounded-lg font-bold text-xs uppercase tracking-widest shadow-md"
-                  >
-                    Rechazar
-                  </button>
-                </>
-              )}
-            </div>
+          <div className="px-6 py-4 border-t border-slate-200 bg-white flex justify-end items-center select-none">
             <div className="flex gap-3 items-center">
               {isAdmin && !isEditingInModal && (
                 <>
@@ -1143,10 +1135,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <FileEdit className="w-4 h-4 mr-2" /> Editar
                   </button>
                   <button
-                    onClick={saveChangesExactos}
+                    onClick={() =>
+                      openResponseComposer(
+                        viewingRequest,
+                        viewingRequest.status,
+                      )
+                    }
                     className="px-6 py-2 bg-emerald-600 text-white rounded-lg font-bold text-xs uppercase tracking-widest shadow-md flex items-center"
                   >
-                    <Save className="w-4 h-4 mr-2" /> Guardar
+                    <Send className="w-4 h-4 mr-2" /> Responder solicitud
                   </button>
                 </>
               )}
@@ -1216,14 +1213,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
               extraCcLabel="Agregue correos adicionales para copia"
               extraCc={responseAdditionalCc}
               onExtraCcChange={setResponseAdditionalCc}
-              bcc={responseBcc}
-              onBccChange={setResponseBcc}
               subject={responseSubject}
               onSubjectChange={setResponseSubject}
               bodyHtml={responseBodyHtml}
               onBodyHtmlChange={setResponseBodyHtml}
               attachmentLabel="resolucion_solicitud.txt"
               attachmentNote={`CC total actual: ${mergedResponseCc || "sin copias"}`}
+              knownRecipients={knownRecipients}
               helperActions={[
                 {
                   label: "Insertar resolución",
@@ -1352,13 +1348,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 .filter((r) => {
                   const matchesStatus =
                     statusFilter === "ALL" || r.status === statusFilter;
+                  const matchesInboxDate =
+                    !isAdmin ||
+                    statusFilter === RequestStatus.PENDING ||
+                    isTodayRequest(r.createdAt);
                   const matchesSearch =
                     searchTerm === "" ||
                     r.flightArr
                       ?.toLowerCase()
                       .includes(searchTerm.toLowerCase()) ||
                     r.origin?.toLowerCase().includes(searchTerm.toLowerCase());
-                  return matchesStatus && matchesSearch;
+                  return matchesStatus && matchesInboxDate && matchesSearch;
                 })
                 .map((req) => {
                   const airlineData = mockSupabase.db.getAirlineById(

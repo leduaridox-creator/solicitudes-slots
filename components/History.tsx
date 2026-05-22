@@ -22,6 +22,7 @@ export const HistoryView: React.FC<HistoryProps> = ({ airline, user }) => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [airlineFilter, setAirlineFilter] = useState<string>("ALL");
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [airlines, setAirlines] = useState<Airline[]>([]);
 
   const isAdmin = user?.role === "admin";
@@ -64,6 +65,10 @@ export const HistoryView: React.FC<HistoryProps> = ({ airline, user }) => {
     const matchesAirline =
       airlineFilter === "ALL" || req.airlineId === airlineFilter;
     if (!matchesAirline) return false;
+
+    const matchesStatus =
+      statusFilter === "ALL" || req.status === statusFilter;
+    if (!matchesStatus) return false;
 
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -160,6 +165,25 @@ export const HistoryView: React.FC<HistoryProps> = ({ airline, user }) => {
               ))}
             </select>
             <ChevronDown className="absolute right-3 top-2.5 h-4 w-4 text-slate-400 pointer-events-none" />
+          </div>
+        )}
+
+        {isAdmin && (
+          <div className="flex bg-slate-100/50 border border-slate-200 p-1 rounded-xl shadow-sm">
+            {[
+              "ALL",
+              RequestStatus.PENDING,
+              RequestStatus.APPROVED,
+              RequestStatus.REJECTED,
+            ].map((status) => (
+              <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${statusFilter === status ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-white/80"}`}
+              >
+                {status === "ALL" ? "Todos" : status}
+              </button>
+            ))}
           </div>
         )}
 

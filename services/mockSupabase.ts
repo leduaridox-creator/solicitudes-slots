@@ -35,6 +35,12 @@ const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
 const localStorageAvailable = () =>
   typeof window !== "undefined" && window.localStorage;
 
+const extractEmails = (value?: string): string[] =>
+  (value || "")
+    .split(/[;,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
 const normalizeNotificationSettings = (
   settings?: Partial<NotificationSettings> | null,
 ): NotificationSettings => ({
@@ -656,6 +662,53 @@ export const mockSupabase = {
     },
     getDefaultNotificationSettings: (): NotificationSettings =>
       normalizeNotificationSettings(DEFAULT_NOTIFICATION_SETTINGS),
+    getKnownEmailAddresses: async (options?: {
+      airlineId?: string;
+      includeAllAirlines?: boolean;
+    }): Promise<string[]> => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const settings = loadNotificationSettingsFromStorage();
+      const deduped = new Map<string, string>();
+      const shouldIncludeRequest = (request: SlotRequest) =>
+        options?.includeAllAirlines ||
+        !options?.airlineId ||
+        request.airlineId === options.airlineId;
+      const shouldIncludeUser = (user: User) =>
+        user.role === "admin" ||
+        options?.includeAllAirlines ||
+        !options?.airlineId ||
+        user.airlineId === options.airlineId;
+
+      const collect = (value?: string) => {
+        extractEmails(value).forEach((email) => {
+          const key = email.toLowerCase();
+          if (!deduped.has(key)) {
+            deduped.set(key, email);
+          }
+        });
+      };
+
+      MOCK_USERS.filter(shouldIncludeUser).forEach((user) => collect(user.email));
+
+      collect(settings.submissionDefaults.to);
+      collect(settings.submissionDefaults.cc);
+      collect(settings.submissionDefaults.bcc);
+      collect(settings.adminResponseDefaults.to);
+      collect(settings.adminResponseDefaults.cc);
+      collect(settings.adminResponseDefaults.bcc);
+
+      MOCK_REQUESTS.filter(shouldIncludeRequest).forEach((request) => {
+        collect(request.submissionEmail?.to);
+        collect(request.submissionEmail?.cc);
+        collect(request.submissionEmail?.bcc);
+        collect(request.submissionEmail?.airlineAdditionalCc);
+      });
+
+      return Array.from(deduped.values()).sort((left, right) =>
+        left.localeCompare(right),
+      );
+    },
     createRequest: async (
       request: Omit<SlotRequest, "id" | "createdAt" | "status"> & {
         status?: RequestStatus;
