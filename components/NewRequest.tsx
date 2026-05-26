@@ -96,6 +96,10 @@ export const NewRequest: React.FC<NewRequestProps> = ({
 
   const [rows, setRows] = useState<ManualRow[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSidebarCollapsed =
+    step === 2 && reqFormat === RequestFormat.MANUAL;
+  const hasFixedActionBar = [2, 3, 4, 5].includes(step);
+  const floatingActionBarClass = `fixed bottom-0 right-0 ${isSidebarCollapsed ? "left-20" : "left-64"} bg-white border-t border-slate-200 p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.1)] z-50 flex justify-between items-center select-none`;
 
   useEffect(() => {
     if (!reqType) return;
@@ -1792,7 +1796,7 @@ export const NewRequest: React.FC<NewRequestProps> = ({
           ))}
         </div>
       </div>
-      <div className="sticky bottom-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-50 flex justify-between items-center select-none w-full">
+      <div className={floatingActionBarClass}>
         <button
           onClick={() => setStep(1)}
           className="flex items-center px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold transition-all text-xs tracking-widest"
@@ -1851,7 +1855,7 @@ export const NewRequest: React.FC<NewRequestProps> = ({
           ))}
         </div>
       </div>
-      <div className="sticky bottom-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.1)] z-50 flex justify-between items-center select-none w-full">
+      <div className={floatingActionBarClass}>
         <button
           onClick={() => setStep(3)}
           className="flex items-center px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold transition-all text-xs tracking-widest"
@@ -1981,7 +1985,7 @@ export const NewRequest: React.FC<NewRequestProps> = ({
         <div className="bg-white shadow-2xl w-screen h-screen overflow-hidden flex flex-col select-text">
           <div className="px-6 py-2 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0 select-none">
             <span className="text-sm font-bold text-slate-800 uppercase">
-              Vista previa de solicitud
+              Vista previa de la solicitud
             </span>
             <button
               onClick={() => setViewingRequest(null)}
@@ -2234,7 +2238,9 @@ export const NewRequest: React.FC<NewRequestProps> = ({
 
   return (
     <div className="min-h-full flex flex-col">
-      <div className="flex-1 overflow-x-hidden">
+      <div
+        className={`flex-1 overflow-x-hidden ${hasFixedActionBar ? "pb-28" : ""}`}
+      >
         {step === 1 && renderSelectionStep()}
         {step === 2 &&
           (reqFormat === RequestFormat.SCR ? (
@@ -2412,7 +2418,7 @@ export const NewRequest: React.FC<NewRequestProps> = ({
       </div>
 
       {step === 2 && (
-        <div className="sticky bottom-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.1)] z-50 flex justify-between items-center select-none w-full">
+        <div className={floatingActionBarClass}>
           {editingRequestId ? (
             <>
               <button
@@ -2456,7 +2462,7 @@ export const NewRequest: React.FC<NewRequestProps> = ({
         </div>
       )}
       {step === 5 && (
-        <div className="sticky bottom-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_15px_rgba(0,0,0,0.1)] z-50 flex justify-between items-center select-none w-full">
+        <div className={floatingActionBarClass}>
           <button
             onClick={() => setStep(3)}
             className="flex items-center px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold text-xs tracking-widest"
